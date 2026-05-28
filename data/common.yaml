@@ -1,0 +1,10 @@
+# peadm_preflight configuration defaults
+---
+peadm_preflight::connectivity:
+  timeout: 30
+  retries: 3
+
+peadm_preflight::performance:
+  disk_throughput_min_mbps: 100
+  io_wait_max_percent: 50
+  iops_min: 1000

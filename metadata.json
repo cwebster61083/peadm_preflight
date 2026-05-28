@@ -1,0 +1,35 @@
+{
+  "name": "peadm_preflight",
+  "version": "0.1.0",
+  "author": "Your Name",
+  "summary": "Preflight checks for Puppet Enterprise using PEADM",
+  "license": "Apache-2.0",
+  "source": "https://github.com/yourusername/peadm_preflight",
+  "project_page": "https://github.com/yourusername/peadm_preflight",
+  "issues_url": "https://github.com/yourusername/peadm_preflight/issues",
+  "operatingsystem_support": [
+    {
+      "operatingsystem": "RedHat",
+      "operatingsystemrelease": ["8", "9"]
+    },
+    {
+      "operatingsystem": "CentOS",
+      "operatingsystemrelease": ["8", "9"]
+    },
+    {
+      "operatingsystem": "Rocky",
+      "operatingsystemrelease": ["8", "9"]
+    },
+    {
+      "operatingsystem": "Ubuntu",
+      "operatingsystemrelease": ["20.04", "22.04"]
+    }
+  ],
+  "requirements": [
+    {
+      "name": "puppet",
+      "version_requirement": ">= 7.0.0"
+    }
+  ],
+  "dependencies": []
+}
