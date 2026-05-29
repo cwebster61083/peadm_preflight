@@ -1,0 +1,5 @@
+{
+  "puppet_task_version": 1,
+  "description": "Returns the configured broker-ws-uris from /etc/puppetlabs/pxp-agent/pxp-agent.conf.",
+  "parameters": {}
+}

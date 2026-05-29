@@ -1,0 +1,5 @@
+{
+  "puppet_task_version": 1,
+  "description": "Returns the resolved agent-runtime server / primary_server / certname / environment from /etc/puppetlabs/puppet/puppet.conf.",
+  "parameters": {}
+}

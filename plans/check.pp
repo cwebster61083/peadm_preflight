@@ -402,6 +402,127 @@ plan peadm_preflight::check(
     out::message("WARNING: ERROR/FATAL entries found in PE logs:\n  ${all_log_warnings.join("\n  ")}")
   }
 
+  # ── Broker & configuration drift check ────────────────────────────────────
+  $ts_broker             = Timestamp()
+  $broker_check_targets  = ($compiler_target + $replica_target).unique
+  if $broker_check_targets.size > 0 {
+    out::message('# Checking pxp-agent broker and server configuration')
+  }
+
+  $broker_task_raw = $compiler_target.size > 0 ? {
+    true    => run_task('peadm_preflight::get_agent_broker', $compiler_target, '_catch_errors' => true),
+    default => undef,
+  }
+  $puppet_conf_raw = $broker_check_targets.size > 0 ? {
+    true    => run_task('peadm_preflight::get_puppet_conf', $broker_check_targets, '_catch_errors' => true),
+    default => undef,
+  }
+  $puppetdb_conf_raw = $broker_check_targets.size > 0 ? {
+    true    => run_task('peadm_preflight::get_puppetdb_conf', $broker_check_targets, '_catch_errors' => true),
+    default => undef,
+  }
+
+  # Expected endpoints — allow primary or replica as valid targets (HA-safe)
+  $all_primary_names = ($primary_target + $replica_target).unique
+  $exp_broker_uris   = $all_primary_names.map |$p| { "wss://${p}:8142/pcp2/" }
+  $exp_puppet_svrs   = $all_primary_names
+  $exp_pdb_urls      = $all_primary_names.map |$p| { "https://${p}:8081" }
+
+  # Validate broker URIs (compilers only)
+  $broker_uri_failures = $broker_task_raw =~ NotUndef ? {
+    true    => $broker_task_raw.ok_set.results.filter |$r| {
+      $uris = $r.value['broker_uris']
+      !($exp_broker_uris.any |$e| { $e in $uris })
+    }.map |$r| {
+      $uris = $r.value['broker_uris']
+      "${r.target.name}: broker [${uris.join(', ')}] (expected one of: ${exp_broker_uris.join(', ')})"
+    },
+    default => [],
+  }
+
+  # Validate puppet server setting (compilers + replica)
+  $puppet_svr_failures = $puppet_conf_raw =~ NotUndef ? {
+    true    => $puppet_conf_raw.ok_set.results.filter |$r| {
+      $svr = $r.value['server']
+      $svr =~ NotUndef and !($exp_puppet_svrs.any |$e| { $svr == $e })
+    }.map |$r| {
+      "${r.target.name}: puppet server '${$r.value['server']}' (expected one of: ${exp_puppet_svrs.join(', ')})"
+    },
+    default => [],
+  }
+
+  # Validate PuppetDB server_urls (compilers + replica)
+  $pdb_url_failures = $puppetdb_conf_raw =~ NotUndef ? {
+    true    => $puppetdb_conf_raw.ok_set.results.filter |$r| {
+      $urls = $r.value['server_urls']
+      $r.value['present'] and $urls.size > 0 and !($exp_pdb_urls.any |$e| { $e in $urls })
+    }.map |$r| {
+      "${r.target.name}: puppetdb [${$r.value['server_urls'].join(', ')}] (expected one of: ${exp_pdb_urls.join(', ')})"
+    },
+    default => [],
+  }
+
+  $all_broker_failures = $broker_uri_failures + $puppet_svr_failures + $pdb_url_failures
+  if $all_broker_failures.size > 0 {
+    out::message("WARNING: Configuration drift detected:\n  ${all_broker_failures.join("\n  ")}")
+  }
+
+  # Build Mermaid topology model (used by HTML report)
+  $topo_nodes = (
+    $primary_target.map              |$n| { { 'name' => $n, 'role' => 'primary' } } +
+    $replica_target.map              |$n| { { 'name' => $n, 'role' => 'replica' } } +
+    $compiler_target.map             |$n| { { 'name' => $n, 'role' => 'pe_compiler' } } +
+    $all_postgresql_targets.map      |$n| { { 'name' => $n, 'role' => 'pe_postgres' } }
+  )
+  $broker_by_name = $broker_task_raw =~ NotUndef ? {
+    true    => $broker_task_raw.ok_set.results.reduce({}) |$m, $r| { $m + { $r.target.name => $r } },
+    default => {},
+  }
+  $puppet_by_name = $puppet_conf_raw =~ NotUndef ? {
+    true    => $puppet_conf_raw.ok_set.results.reduce({}) |$m, $r| { $m + { $r.target.name => $r } },
+    default => {},
+  }
+  $pdb_by_name = $puppetdb_conf_raw =~ NotUndef ? {
+    true    => $puppetdb_conf_raw.ok_set.results.reduce({}) |$m, $r| { $m + { $r.target.name => $r } },
+    default => {},
+  }
+  $topo_edges = $compiler_target.map |$c| {
+    $br = $broker_by_name[$c]
+    $pp = $puppet_by_name[$c]
+    $pd = $pdb_by_name[$c]
+    $pcp_uris = $br =~ NotUndef ? {
+      true    => $br.ok ? {
+        true    => ($br.value['broker_uris'] =~ NotUndef ? { true => $br.value['broker_uris'], default => [] }),
+        default => [],
+      },
+      default => [],
+    }
+    $servers = $pp =~ NotUndef ? {
+      true    => $pp.ok ? {
+        true    => [$pp.value['server'], $pp.value['primary_server']].filter |$v| { $v =~ NotUndef },
+        default => [],
+      },
+      default => [],
+    }
+    $pdb_urls = $pd =~ NotUndef ? {
+      true    => $pd.ok ? {
+        true    => ($pd.value['server_urls'] =~ NotUndef ? { true => $pd.value['server_urls'], default => [] }),
+        default => [],
+      },
+      default => [],
+    }
+    $pcp_v = $exp_broker_uris.any |$e| { $e in $pcp_uris }
+    $svr_v = $exp_puppet_svrs.any  |$e| { $e in $servers }
+    $pdb_v = $exp_pdb_urls.any     |$e| { $e in $pdb_urls }
+    [
+      { 'from' => $c, 'kind' => 'pcp',           'valid' => $pcp_v, 'actual' => $pcp_uris, 'expected' => $exp_broker_uris },
+      { 'from' => $c, 'kind' => 'puppet_server', 'valid' => $svr_v, 'actual' => $servers,  'expected' => $exp_puppet_svrs },
+      { 'from' => $c, 'kind' => 'puppetdb',      'valid' => $pdb_v, 'actual' => $pdb_urls, 'expected' => $exp_pdb_urls   },
+    ]
+  }.flatten
+  $topo_model      = { 'nodes' => $topo_nodes, 'edges' => $topo_edges }
+  $mermaid_diagram = peadm_preflight::render_mermaid($topo_model)
+
   $ts_end = Timestamp()
 
   # ── Summary ────────────────────────────────────────────────────────────────
@@ -453,11 +574,22 @@ plan peadm_preflight::check(
     default => "${pass}  Log errors         : no recent ERROR/FATAL entries found",
   }
 
+  $broker_summary = $broker_check_targets.size > 0 ? {
+    true    => $all_broker_failures.size > 0 ? {
+      true    => "${warn}  Broker config      : ${all_broker_failures.size} drift issue(s)\n${
+        $all_broker_failures.map |$f| { "           ⤷ ${f}" }.join("\n")
+      }",
+      default => "${pass}  Broker config      : all compiler/replica configuration aligned",
+    },
+    default => "-   Broker config      : skipped (no compilers or replica)",
+  }
+
   $warning_count = $all_fw_failures.size
     + $disk_warnings.size
     + $mem_warnings.size
     + $all_svc_issues.size
     + $all_log_warnings.size
+    + $all_broker_failures.size
 
   out::message(@("SUMMARY"/$))
     ================================================
@@ -471,6 +603,7 @@ plan peadm_preflight::check(
     ${mem_summary}
     ${svc_summary}
     ${log_summary}
+    ${broker_summary}
     ================================================
     | SUMMARY
 
@@ -504,6 +637,59 @@ plan peadm_preflight::check(
     $ts_mem_s      = $ts_mem.strftime($fmt)
     $ts_svc_s      = $ts_svc.strftime($fmt)
     $ts_logs_s     = $ts_logs.strftime($fmt)
+    $ts_broker_s   = $ts_broker.strftime($fmt)
+
+    # Broker check rows
+    $broker_rows = $broker_check_targets.size > 0 ? {
+      true    => $all_broker_failures.size > 0 ? {
+        true    => $all_broker_failures.map |$f| { "<tr><td class='warn'>&#x26A0;</td><td>${f}</td></tr>" }.join("\n"),
+        default => "<tr><td class='pass'>&#x2713;</td><td>All compiler/replica configuration aligned with primary</td></tr>",
+      },
+      default => "<tr><td class='skip'>-</td><td>Skipped (no compilers or replica configured)</td></tr>",
+    }
+
+    # Per-node broker/conf detail for expandable section
+    $broker_node_details = $broker_check_targets.size > 0 ? {
+      true    => $broker_check_targets.map |$node| {
+        $br = $broker_by_name[$node]
+        $pp = $puppet_by_name[$node]
+        $pd = $pdb_by_name[$node]
+        $broker_val = $br =~ NotUndef ? {
+          true    => $br.ok ? {
+            true    => ($br.value['broker_uris'] =~ NotUndef ? {
+              true    => $br.value['broker_uris'].join(', '),
+              default => ($br.value['broker_uri'] =~ NotUndef ? { true => $br.value['broker_uri'], default => '(empty)' }),
+            }),
+            default => "(task failed)",
+          },
+          default => 'n/a',
+        }
+        $server_val = $pp =~ NotUndef ? {
+          true    => $pp.ok ? {
+            true    => ($pp.value['server'] =~ NotUndef ? { true => $pp.value['server'], default => '(not set)' }),
+            default => "(task failed)",
+          },
+          default => 'n/a',
+        }
+        $pdb_val = $pd =~ NotUndef ? {
+          true    => $pd.ok ? {
+            true    => ($pd.value['server_urls'] =~ NotUndef ? {
+              true    => ($pd.value['server_urls'].size > 0 ? { true => $pd.value['server_urls'].join(', '), default => '(not set)' }),
+              default => '(not set)',
+            }),
+            default => "(task failed)",
+          },
+          default => 'n/a',
+        }
+        $node_issues = $all_broker_failures.filter |$f| { $f =~ Regexp("^${node}:") }.size
+        $sum_cls = $node_issues > 0 ? { true => 'warn', default => 'pass' }
+        $sum_ico = $node_issues > 0 ? { true => '&#x26A0;', default => '&#x2713;' }
+        $sum_txt = $node_issues > 0 ? { true => "${node_issues} drift issue(s)", default => 'aligned' }
+        $detail_rows = "<tr><td class='conf-label'>Broker URI(s)</td><td class='chip-cell'>${broker_val}</td></tr><tr><td class='conf-label'>Puppet server</td><td class='chip-cell'>${server_val}</td></tr><tr><td class='conf-label'>PuppetDB URL(s)</td><td class='chip-cell'>${pdb_val}</td></tr>"
+        "<details class='node-detail'><summary><span class='${sum_cls}'>${sum_ico}</span> <span class='node-name'>${node}</span><span class='svc-count ${sum_cls}'>${sum_txt}</span></summary><table class='svc-table detail-table'>${detail_rows}</table></details>"
+      }.join("\n"),
+      default => "<div style='padding:1em 1.25em;color:#b0aacf;font-size:0.88em'>Skipped (no compilers or replica configured)</div>",
+    }
 
     $fw_443_row = $firewall_infra_targets.size > 0 ? {
       true => $fw_443_failures.size > 0 ? {
@@ -626,6 +812,8 @@ plan peadm_preflight::check(
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Puppet Preflight Report</title>
+        <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+        <script>mermaid.initialize({ startOnLoad: true, theme: 'base', themeVariables: { fontSize: '13px' } });</script>
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
           *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -694,6 +882,13 @@ plan peadm_preflight::check(
           .log-header-line { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.8em; font-weight: 600; color: #c87000; margin: 0.8em 0 0.25em; padding: 0.2em 0; border-top: 1px solid #f3f1fb; }
           .log-header-line:first-child { border-top: none; margin-top: 0; }
           .log-line { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.77em; color: #5a5880; background: #f8f7fc; border-radius: 3px; padding: 0.25em 0.5em; margin: 0.15em 0; white-space: pre-wrap; word-break: break-all; }
+          /* ── Broker / conf detail ── */
+          .detail-table td { font-size: 0.83em; }
+          .conf-label { width: 8em; color: #9590bb; font-weight: 500; font-size: 0.83em; }
+          .chip-cell { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.88em; color: #3d3560; word-break: break-all; }
+          /* ── Mermaid topology ── */
+          .mermaid-container { padding: 1.25em; overflow-x: auto; text-align: center; }
+          .mermaid { background: transparent; display: inline-block; max-width: 100%; }
         </style>
       </head>
       <body>
@@ -780,6 +975,32 @@ plan peadm_preflight::check(
             ${log_node_details}
           </div>
 
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title"><span class="icon">&#x1F517;</span> Broker &amp; Configuration Check</div>
+              <span class="ts">${ts_broker_s}</span>
+            </div>
+            <table>${broker_rows}</table>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title"><span class="icon">&#x1F4CA;</span> Configuration per Node</div>
+              <span class="ts">${ts_broker_s}</span>
+            </div>
+            ${broker_node_details}
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title"><span class="icon">&#x1F5FA;&#xFE0F;</span> PE Topology Map</div>
+              <span class="ts">${ts_broker_s}</span>
+            </div>
+            <div class="mermaid-container">
+              <pre class="mermaid">${mermaid_diagram}</pre>
+            </div>
+          </div>
+
         </div>
         <footer>
           Puppet PE Preflight &mdash; <a href="https://portal.perforce.com/s/product/a3g4X000009wMFBQA2/puppet">Perforce Customer Portal</a>
@@ -806,6 +1027,9 @@ plan peadm_preflight::check(
       Completed : ${ts_end_s}
       Elapsed   : ${elapsed_s}s
       Status    : ${text_status_line}
+      Broker & Configuration
+        ${broker_summary}
+
       ================================================
 
       Node Connectivity

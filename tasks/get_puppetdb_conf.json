@@ -1,0 +1,5 @@
+{
+  "puppet_task_version": 1,
+  "description": "Returns the server_urls list configured in /etc/puppetlabs/puppet/puppetdb.conf, or an empty list if the file is absent.",
+  "parameters": {}
+}
