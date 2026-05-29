@@ -7,60 +7,103 @@
 #                    'valid' => Boolean, 'actual' => Array, 'expected' => Array }, ... ],
 #   }
 #
-# Returns a `flowchart LR` block with primary/compiler/db node classes and
-# linkStyle entries colouring each edge green (valid) or red-dashed (drift).
+# Returns a `flowchart TB` block with three subgraphs (Compilers / Primary Tier /
+# PostgreSQL) arranged top-to-bottom, matching the standard PE reference architecture.
+# Edges carry TCP port labels and are coloured green (valid) or red-dashed (drift).
+# Node labels show only the short hostname (first FQDN component) for readability.
 function peadm_preflight::render_mermaid(Hash $model) >> String {
-  $node_lines = $model['nodes'].map |$n| {
-    $id    = peadm_preflight::mermaid_id($n['name'])
-    $open  = $n['role'] == 'primary' ? {
-      true    => '[[',
-      default => $n['role'] == 'pe_postgres' ? {
-        true    => '[(',
-        default => '[',
-      },
-    }
-    $close = $n['role'] == 'primary' ? {
-      true    => ']]',
-      default => $n['role'] == 'pe_postgres' ? {
-        true    => ')]',
-        default => ']',
-      },
-    }
-    $class = $n['role'] == 'primary' ? {
-      true    => 'primary',
-      default => $n['role'] == 'pe_postgres' ? {
-        true    => 'db',
-        default => $n['role'] == 'legacy_compiler' ? {
-          true    => 'legacy',
-          default => $n['role'] == 'replica' ? {
-            true    => 'replica',
-            default => 'compiler',
-          },
-        },
-      },
-    }
-    "  ${id}${open}\"${n['name']}<br/>(${n['role']})\"${close}:::${class}"
-  }.join("\n")
+  $nodes = $model['nodes']
+  $edges = $model['edges']
 
-  $edge_acc = $model['edges'].reduce({ 'lines' => [], 'styles' => [], 'i' => 0 }) |$acc, $e| {
-    $i       = $acc['i']
-    $from_id = peadm_preflight::mermaid_id($e['from'])
-    $primary = $e['expected'][0]
-    $to_id   = peadm_preflight::mermaid_id($primary)
+  # ── Group nodes by role ────────────────────────────────────────────────────
+  $comp_nodes = $nodes.filter |$n| { ($n['role'] in ['pe_compiler', 'legacy_compiler']) }
+  $prim_nodes = $nodes.filter |$n| { $n['role'] == 'primary' }
+  $repl_nodes = $nodes.filter |$n| { $n['role'] == 'replica' }
+  $psql_nodes = $nodes.filter |$n| { $n['role'] == 'pe_postgres' }
 
-    $actual = $e['actual'].empty ? { true => '(none)', default => $e['actual'][0] }
-    $arrow  = $e['valid'] ? { true => '-->', default => '-.->' }
-    $colour = $e['valid'] ? { true => '#198754', default => '#dc3545' }
-
-    $line    = "  ${from_id} ${arrow}|\"${e['kind']}: ${actual}\"| ${to_id}"
-    $style   = "  linkStyle ${i} stroke:${colour},stroke-width:2px"
-    $next    = { 'lines' => $acc['lines'] + [$line], 'styles' => $acc['styles'] + [$style], 'i' => $i + 1 }
-    $next
+  # ── Node declaration lines (short hostname as label) ───────────────────────
+  $comp_decls = $comp_nodes.map |$n| {
+    $id  = peadm_preflight::mermaid_id($n['name'])
+    $lbl = regsubst($n['name'], '^([^.]+)\..*$', '\1')
+    $cls = ($n['role'] == 'legacy_compiler') ? { true => 'legacy', default => 'compiler' }
+    "    ${id}[\"${lbl}\"]:::${cls}"
   }
 
-  $edge_block  = $edge_acc['lines'].join("\n")
-  $style_block = $edge_acc['styles'].join("\n")
+  $prim_decls = $prim_nodes.map |$n| {
+    $id  = peadm_preflight::mermaid_id($n['name'])
+    $lbl = regsubst($n['name'], '^([^.]+)\..*$', '\1')
+    "    ${id}[[\"${lbl}\"]]:::primary"
+  }
 
+  $repl_decls = $repl_nodes.map |$n| {
+    $id  = peadm_preflight::mermaid_id($n['name'])
+    $lbl = regsubst($n['name'], '^([^.]+)\..*$', '\1')
+    "    ${id}[\"${lbl}\"]:::replica"
+  }
+
+  $psql_decls = $psql_nodes.map |$n| {
+    $id  = peadm_preflight::mermaid_id($n['name'])
+    $lbl = regsubst($n['name'], '^([^.]+)\..*$', '\1')
+    "    ${id}[(\"${lbl}\")]:::db"
+  }
+
+  # ── Subgraph blocks ────────────────────────────────────────────────────────
+  # Compilers stacked top; primary + replica side-by-side in middle; psql at bottom
+  $comp_block = $comp_nodes.size > 0 ? {
+    true    => "  subgraph COMPILERS[\"Compilers\"]\n    direction TB\n${comp_decls.join("\n")}\n  end",
+    default => '',
+  }
+
+  $prim_tier_decls = $prim_decls + $repl_decls
+  $prim_block = $prim_tier_decls.size > 0 ? {
+    true    => "  subgraph PRIMARY_TIER[\"Primary Tier\"]\n    direction LR\n${prim_tier_decls.join("\n")}\n  end",
+    default => '',
+  }
+
+  $psql_block = $psql_nodes.size > 0 ? {
+    true    => "  subgraph PSQL_TIER[\"PostgreSQL\"]\n    direction LR\n${psql_decls.join("\n")}\n  end",
+    default => '',
+  }
+
+  $subgraph_block = [$comp_block, $prim_block, $psql_block].filter |$b| { $b != '' }.join("\n\n")
+
+  # ── Compiler/replica → primary edges (port-labelled, coloured by validity) ─
+  # Strip URL scheme and port/path from expected[0] to recover the bare certname
+  # e.g. "wss://host:8142/pcp2/" → "host", "https://host:8081" → "host", "host" → "host"
+  $compiler_edge_data = $edges.map |$e| {
+    $from_id = peadm_preflight::mermaid_id($e['from'])
+    $to_host = regsubst(regsubst($e['expected'][0], '^[a-z]+://', ''), '[:/?].*$', '')
+    $to_id   = peadm_preflight::mermaid_id($to_host)
+    $lbl     = $e['kind'] == 'pcp' ? {
+      true    => 'TCP-8142',
+      default => $e['kind'] == 'puppet_server' ? {
+        true    => 'TCP-8140',
+        default => 'TCP-8081',
+      },
+    }
+    $arrow = $e['valid'] ? { true => '-->', default => '-.->' }
+    $col   = $e['valid'] ? { true => '#198754', default => '#dc3545' }
+    $entry = { 'line' => "  ${from_id} ${arrow}|\"${lbl}\"| ${to_id}", 'colour' => $col }
+    $entry
+  }
+
+  # ── Primary/replica → PostgreSQL structural edges ──────────────────────────
+  $psql_edge_data = ($prim_nodes + $repl_nodes).reduce([]) |$memo, $pn| {
+    $memo + $psql_nodes.map |$dbnode| {
+      $from_id = peadm_preflight::mermaid_id($pn['name'])
+      $to_id   = peadm_preflight::mermaid_id($dbnode['name'])
+      $psql_entry = { 'line' => "  ${from_id} -->|\"TCP-5432\"| ${to_id}", 'colour' => '#0d6efd' }
+      $psql_entry
+    }
+  }
+
+  $all_edge_data = $compiler_edge_data + $psql_edge_data
+  $edge_lines  = $all_edge_data.map |$e| { $e['line'] }
+  $style_lines = $all_edge_data.map |$i, $e| {
+    "  linkStyle ${i} stroke:${$e['colour']},stroke-width:2px"
+  }
+
+  # ── Class definitions ──────────────────────────────────────────────────────
   $classdefs = @(DEFS)
       classDef primary  fill:#cfe2ff,stroke:#0d6efd,stroke-width:2px
       classDef replica  fill:#d8d5ff,stroke:#3d2bab,stroke-width:2px
@@ -69,5 +112,6 @@ function peadm_preflight::render_mermaid(Hash $model) >> String {
       classDef db       fill:#d1e7dd,stroke:#198754
     | DEFS
 
-  "flowchart LR\n${node_lines}\n${edge_block}\n${style_block}\n${classdefs}"
+  $all_parts = [$subgraph_block, $edge_lines.join("\n"), $style_lines.join("\n"), $classdefs].filter |$p| { $p != '' }
+  "flowchart TB\n${all_parts.join("\n")}"
 }
