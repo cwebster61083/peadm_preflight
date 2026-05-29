@@ -52,9 +52,10 @@ function peadm_preflight::render_mermaid(Hash $model) >> String {
     $arrow  = $e['valid'] ? { true => '-->', default => '-.->' }
     $colour = $e['valid'] ? { true => '#198754', default => '#dc3545' }
 
-    $line   = "  ${from_id} ${arrow}|\"${e['kind']}: ${actual}\"| ${to_id}"
-    $style  = "  linkStyle ${i} stroke:${colour},stroke-width:2px"
-    { 'lines' => $acc['lines'] + [$line], 'styles' => $acc['styles'] + [$style], 'i' => $i + 1 }
+    $line    = "  ${from_id} ${arrow}|\"${e['kind']}: ${actual}\"| ${to_id}"
+    $style   = "  linkStyle ${i} stroke:${colour},stroke-width:2px"
+    $next    = { 'lines' => $acc['lines'] + [$line], 'styles' => $acc['styles'] + [$style], 'i' => $i + 1 }
+    $next
   }
 
   $edge_block  = $edge_acc['lines'].join("\n")
