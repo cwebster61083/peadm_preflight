@@ -5,6 +5,38 @@ peadm_preflight::connectivity:
   retries: 3
 
 peadm_preflight::performance:
-  disk_throughput_min_mbps: 100
-  io_wait_max_percent: 50
-  iops_min: 1000
+  # Database performance thresholds
+  disk_throughput_min_mbps: 100    # Minimum disk write throughput (MB/s)
+  io_wait_max_percent: 20          # Maximum I/O wait percentage
+  iops_min: 1000                   # Minimum IOPS
+
+# System resource requirements
+peadm_preflight::resources:
+  # PE Primary
+  primary:
+    disk_min_gb: 100
+    memory_min_mb: 8192
+  
+  # Other infrastructure nodes (replica, compilers)
+  infra:
+    disk_min_gb: 50
+    memory_min_mb: 4096
+  
+  # PostgreSQL nodes (XL only)
+  postgresql:
+    disk_min_gb: 100
+    memory_min_mb: 8192
+
+# Firewall port requirements
+peadm_preflight::firewall:
+  pe_server:
+    - port: 8140
+      description: "Puppet Server (catalog requests, file serving)"
+    - port: 8081
+      description: "PuppetDB"
+  postgresql:
+    - port: 5432
+      description: "PostgreSQL replication"
+  orchestrator:
+    - port: 8142
+      description: "PXP agent / Orchestrator"

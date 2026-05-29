@@ -1,0 +1,178 @@
+# peadm_preflight
+
+A Puppet module that provides comprehensive preflight checks for Puppet Enterprise PEADM deployments. Extracted from the PEADM module to be used as a standalone Bolt project module.
+
+## Features
+
+- **Database Connectivity**: Validates all PE servers can reach PostgreSQL on port 5432
+- **Database Performance**: Measures disk throughput (min 100 MB/s) and I/O wait times (max 20%)
+- **Service Status**: Checks PE service health via `puppet infra status`
+- **Firewall Validation**: Verifies connectivity to all required PE ports (8140, 8081, 8142, 5432)
+- **Disk Space**: Warns if nodes have insufficient disk space (100 GB primary, 50 GB infra)
+- **Memory Pressure**: Warns if available memory is below thresholds (8 GB primary, 4 GB infra)
+- **Log Error Scanning**: Checks PE service logs for recent ERROR/FATAL entries
+- **Comprehensive Reporting**: Console output + optional HTML report
+
+## Usage
+
+### Basic Preflight Check
+
+Run preflight checks on all PE infrastructure:
+
+```bash
+bolt plan run peadm_preflight::check \
+  primary_host=pe-primary.example.com \
+  replica_host=pe-replica.example.com \
+  compiler_hosts=pe-compiler-1.example.com,pe-compiler-2.example.com \
+  primary_postgresql_host=pe-psql-1.example.com \
+  replica_postgresql_host=pe-psql-2.example.com
+```
+
+### With PE Version Validation
+
+```bash
+bolt plan run peadm_preflight::check \
+  primary_host=pe-primary.example.com \
+  version=2025.8.0
+```
+
+### Generate HTML Report
+
+```bash
+bolt plan run peadm_preflight::check \
+  primary_host=pe-primary.example.com \
+  html_report_file=./preflight-report.html
+```
+
+### With RBAC Token for Compiler Validation
+
+```bash
+bolt plan run peadm_preflight::check \
+  primary_host=pe-primary.example.com \
+  compiler_hosts=pe-compiler-1.example.com \
+  token_file=~/.puppetlabs/token
+```
+
+## Plan Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `primary_host` | String | undef | Hostname of the primary Puppet server |
+| `replica_host` | String | undef | Hostname of the replica (HA architectures) |
+| `compiler_hosts` | String | undef | Comma-separated list of compiler hostnames |
+| `primary_postgresql_host` | String | undef | Primary PostgreSQL node (XL architectures) |
+| `replica_postgresql_host` | String | undef | Replica PostgreSQL node (XL architectures) |
+| `version` | String | undef | PE version to validate against |
+| `token_file` | String | undef | Path to PE RBAC token file |
+| `pe_admin_password` | String | undef | PE admin password for token generation |
+| `token_lifetime` | String | 1h | Lifetime for generated RBAC token |
+| `permit_unsafe_versions` | Boolean | false | Skip PE version safety checks |
+| `html_report_file` | String | undef | Path to write HTML preflight report |
+
+## Check Categories
+
+### Critical Failures (halt execution)
+- Firewall port blockages to primary/PostgreSQL
+- Hostname/certname mismatches
+- OS platform inconsistencies across cluster
+- Missing required RBAC token access
+- PXP-agent connectivity failures from compilers
+
+### Warnings (logged but non-fatal)
+- Low disk space on any node
+- Low available memory
+- High I/O wait on PostgreSQL nodes
+- Low database disk throughput
+- Inactive PE services
+- Recent ERROR/FATAL log entries
+- PE master rules not current
+
+## Database Performance Thresholds
+
+Default performance thresholds (configurable in `data/common.yaml`):
+
+| Metric | Threshold | Description |
+|--------|-----------|-------------|
+| Disk throughput | 100 MB/s | Sequential write performance (via `dd`) |
+| I/O wait | 20% | Percentage of time CPU waits for I/O |
+| Service connectivity timeout | 5s | Timeout for port connectivity tests |
+
+## Installation
+
+Add to your `Puppetfile`:
+
+```ruby
+mod 'peadm_preflight',
+  git: 'https://github.com/cwebster61083/peadm_preflight.git',
+  branch: 'main'
+```
+
+Install modules:
+
+```bash
+bolt module install
+```
+
+## Module Structure
+
+```
+peadm_preflight/
+├── plans/
+│   └── check.pp                # Main preflight plan
+├── functions/
+│   ├── db_connectivity.pp      # Database connectivity checks
+│   └── db_performance.pp       # Database performance checks
+├── data/
+│   └── common.yaml             # Configuration defaults
+├── metadata.json               # Module metadata
+├── README.md                   # Documentation
+├── CHANGELOG.md                # Version history
+├── LICENSE                     # Apache 2.0 license
+└── CONTRIBUTING.md             # Contribution guidelines
+```
+
+## Requirements
+
+- Puppet >= 7.0.0
+- Bolt >= 3.0.0
+- Ruby >= 2.7
+- SSH access to all infrastructure nodes
+
+## Troubleshooting
+
+### Firewall connectivity fails
+
+Verify that security groups/firewall rules allow traffic between:
+- All PE servers → Primary on ports 8140, 8081
+- All PE servers → PostgreSQL on port 5432 (XL only)
+- Compilers → Primary on port 8142 (PXP agent)
+
+### Database performance warnings
+
+If disk throughput or I/O wait warnings appear:
+1. Check storage device performance: `iostat -x 1 10`
+2. Verify storage is not contended by other workloads
+3. For network storage (EBS, SAN), check I/O limits and burst credits
+
+### Service health warnings
+
+Run on the affected node:
+
+```bash
+/opt/puppetlabs/bin/puppet infra status
+```
+
+## License
+
+Apache License 2.0
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## Source
+
+This module was extracted from the PEADM module's preflight checks to provide a standalone preflight validation tool for Puppet Enterprise deployments.
+
+- **Original**: https://github.com/puppetlabs/puppetlabs-peadm
+- **Fork with checks**: https://github.com/cwebster61083/puppetlabs-peadm/blob/feature/add-upgrade-checks/plans/preflight.pp
