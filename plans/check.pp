@@ -845,7 +845,7 @@ plan peadm_preflight::check(
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Puppet Preflight Report</title>
         <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-        <script>mermaid.initialize({ startOnLoad: true, theme: 'base', themeVariables: { fontSize: '13px' } });</script>
+        <script>mermaid.initialize({ startOnLoad: true, theme: 'base', themeVariables: { fontSize: '16px' } });</script>
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
           *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -919,8 +919,9 @@ plan peadm_preflight::check(
           .conf-label { width: 8em; color: #9590bb; font-weight: 500; font-size: 0.83em; }
           .chip-cell { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.88em; color: #3d3560; word-break: break-all; }
           /* ── Mermaid topology ── */
-          .mermaid-container { padding: 1.25em; overflow-x: auto; text-align: center; }
-          .mermaid { background: transparent; display: inline-block; max-width: 100%; }
+          .mermaid-container { padding: 1.25em; overflow-x: auto; text-align: center; min-height: 300px; }
+          .mermaid { background: transparent; display: block; width: 100%; }
+          .mermaid svg { width: 100% !important; height: auto; }
           /* ── Open-in-tab button ── */
           .open-tab-btn { background: rgba(61,43,171,0.08); color: #3d2bab; border: 1px solid rgba(61,43,171,0.2); border-radius: 6px; padding: 0.28em 0.75em; font-size: 0.75em; font-weight: 600; cursor: pointer; letter-spacing: 0.04em; font-family: inherit; white-space: nowrap; }
           .open-tab-btn:hover { background: rgba(61,43,171,0.15); border-color: rgba(61,43,171,0.35); }
