@@ -1069,9 +1069,9 @@ plan peadm_preflight::check(
           function relTime(d) {
             var s = Math.floor((Date.now() - d.getTime()) / 1000);
             if (s < 60)    return s + 's ago';
-            if (s < 3600)  return Math.floor(s/60) + 'm ago';
-            if (s < 86400) return Math.floor(s/3600) + 'h ago';
-            return Math.floor(s/86400) + 'd ago';
+            if (s < 3600)  return Math.floor(s/60) + 'm ' + (s%60) + 's ago';
+            if (s < 86400) return Math.floor(s/3600) + 'h ' + Math.floor((s%3600)/60) + 'm ago';
+            return Math.floor(s/86400) + 'd ' + Math.floor((s%86400)/3600) + 'h ago';
           }
           document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('.log-line').forEach(function(el) {
