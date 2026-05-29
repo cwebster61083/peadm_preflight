@@ -68,7 +68,13 @@ bolt plan run peadm_preflight::topology_map \
   primary_host=<primary-certname>
 ```
 
-Runs only the broker/config probes and prints the Mermaid diagram to the console.
+Runs only the broker/config probes, queries `/status/v1/services` on each node for
+live service health, and prints the Mermaid diagram to the console. When a node has
+one or more services in a non-`running` state, the node label gains a
+`DEGRADED: svc=state` line — for example,
+`primary<br/>DEGRADED: puppetdb-status=error`. Ports that don't respond (typical on
+compilers, which don't run console-services or orchestrator) are silently elided and
+don't count as drift.
 
 ## Parameters — `peadm_preflight::check`
 

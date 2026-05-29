@@ -2,7 +2,8 @@
 #
 # Model shape:
 #   {
-#     'nodes' => [ { 'name' => String, 'role' => String }, ... ],
+#     'nodes' => [ { 'name' => String, 'role' => String,
+#                    'services' => Hash, 'errors' => Hash }, ... ],
 #     'edges' => [ { 'from' => String, 'kind' => String,
 #                    'valid' => Boolean, 'actual' => Array, 'expected' => Array }, ... ],
 #   }
@@ -11,6 +12,8 @@
 # PostgreSQL) arranged top-to-bottom, matching the standard PE reference architecture.
 # Edges carry TCP port labels and are coloured green (valid) or red-dashed (drift).
 # Node labels show only the short hostname (first FQDN component) for readability.
+# When a node carries a non-empty `services` hash, services whose state is not
+# `running` are surfaced as `DEGRADED: svc=state` in the node label.
 function peadm_preflight::render_mermaid(Hash $model) >> String {
   $nodes = $model['nodes']
   $edges = $model['edges']
@@ -26,25 +29,73 @@ function peadm_preflight::render_mermaid(Hash $model) >> String {
     $id  = peadm_preflight::mermaid_id($n['name'])
     $lbl = regsubst($n['name'], '^([^.]+)\..*$', '\1')
     $cls = ($n['role'] == 'legacy_compiler') ? { true => 'legacy', default => 'compiler' }
-    "    ${id}[\"${lbl}\"]:::${cls}"
+    $services = $n['services']
+    if $services and ! $services.empty {
+      $degraded = $services.filter |$k, $v| { $v != 'running' }
+      if $degraded.empty {
+        $health_line = ''
+      } else {
+        $parts = $degraded.map |$k, $v| { "${k}=${v}" }
+        $health_line = "<br/>DEGRADED: ${parts.join(', ')}"
+      }
+    } else {
+      $health_line = ''
+    }
+    "    ${id}[\"${lbl}${health_line}\"]:::${cls}"
   }
 
   $prim_decls = $prim_nodes.map |$n| {
     $id  = peadm_preflight::mermaid_id($n['name'])
     $lbl = regsubst($n['name'], '^([^.]+)\..*$', '\1')
-    "    ${id}[[\"${lbl}\"]]:::primary"
+    $services = $n['services']
+    if $services and ! $services.empty {
+      $degraded = $services.filter |$k, $v| { $v != 'running' }
+      if $degraded.empty {
+        $health_line = ''
+      } else {
+        $parts = $degraded.map |$k, $v| { "${k}=${v}" }
+        $health_line = "<br/>DEGRADED: ${parts.join(', ')}"
+      }
+    } else {
+      $health_line = ''
+    }
+    "    ${id}[[\"${lbl}${health_line}\"]]:::primary"
   }
 
   $repl_decls = $repl_nodes.map |$n| {
     $id  = peadm_preflight::mermaid_id($n['name'])
     $lbl = regsubst($n['name'], '^([^.]+)\..*$', '\1')
-    "    ${id}[\"${lbl}\"]:::replica"
+    $services = $n['services']
+    if $services and ! $services.empty {
+      $degraded = $services.filter |$k, $v| { $v != 'running' }
+      if $degraded.empty {
+        $health_line = ''
+      } else {
+        $parts = $degraded.map |$k, $v| { "${k}=${v}" }
+        $health_line = "<br/>DEGRADED: ${parts.join(', ')}"
+      }
+    } else {
+      $health_line = ''
+    }
+    "    ${id}[\"${lbl}${health_line}\"]:::replica"
   }
 
   $psql_decls = $psql_nodes.map |$n| {
     $id  = peadm_preflight::mermaid_id($n['name'])
     $lbl = regsubst($n['name'], '^([^.]+)\..*$', '\1')
-    "    ${id}[(\"${lbl}\")]:::db"
+    $services = $n['services']
+    if $services and ! $services.empty {
+      $degraded = $services.filter |$k, $v| { $v != 'running' }
+      if $degraded.empty {
+        $health_line = ''
+      } else {
+        $parts = $degraded.map |$k, $v| { "${k}=${v}" }
+        $health_line = "<br/>DEGRADED: ${parts.join(', ')}"
+      }
+    } else {
+      $health_line = ''
+    }
+    "    ${id}[(\"${lbl}${health_line}\")]:::db"
   }
 
   # ── Subgraph blocks ────────────────────────────────────────────────────────

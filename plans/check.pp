@@ -421,6 +421,10 @@ plan peadm_preflight::check(
     true    => run_task('peadm_preflight::get_puppetdb_conf', $broker_check_targets, '_catch_errors' => true),
     default => undef,
   }
+  $status_svc_raw = $all_targets.size > 0 ? {
+    true    => run_task('peadm_preflight::get_status_services', $all_targets, '_catch_errors' => true),
+    default => undef,
+  }
 
   # Expected endpoints — allow primary or replica as valid targets (HA-safe)
   $all_primary_names = ($primary_target + $replica_target).unique
@@ -468,11 +472,39 @@ plan peadm_preflight::check(
   }
 
   # Build Mermaid topology model (used by HTML report)
+  $status_by_name = $status_svc_raw =~ NotUndef ? {
+    true    => $status_svc_raw.ok_set.results.reduce({}) |$m, $r| { $m + { $r.target.name => $r } },
+    default => {},
+  }
   $topo_nodes = (
-    $primary_target.map              |$n| { { 'name' => $n, 'role' => 'primary' } } +
-    $replica_target.map              |$n| { { 'name' => $n, 'role' => 'replica' } } +
-    $compiler_target.map             |$n| { { 'name' => $n, 'role' => 'pe_compiler' } } +
-    $all_postgresql_targets.map      |$n| { { 'name' => $n, 'role' => 'pe_postgres' } }
+    $primary_target.map         |$n| {
+      $st = $status_by_name[$n]
+      $sv = $st =~ NotUndef ? { true => $st.value['services'], default => {} }
+      $er = $st =~ NotUndef ? { true => $st.value['errors'],   default => {} }
+      $pn = { 'name' => $n, 'role' => 'primary',    'services' => $sv, 'errors' => $er }
+      $pn
+    } +
+    $replica_target.map         |$n| {
+      $st = $status_by_name[$n]
+      $sv = $st =~ NotUndef ? { true => $st.value['services'], default => {} }
+      $er = $st =~ NotUndef ? { true => $st.value['errors'],   default => {} }
+      $rn = { 'name' => $n, 'role' => 'replica',    'services' => $sv, 'errors' => $er }
+      $rn
+    } +
+    $compiler_target.map        |$n| {
+      $st = $status_by_name[$n]
+      $sv = $st =~ NotUndef ? { true => $st.value['services'], default => {} }
+      $er = $st =~ NotUndef ? { true => $st.value['errors'],   default => {} }
+      $cn = { 'name' => $n, 'role' => 'pe_compiler', 'services' => $sv, 'errors' => $er }
+      $cn
+    } +
+    $all_postgresql_targets.map |$n| {
+      $st = $status_by_name[$n]
+      $sv = $st =~ NotUndef ? { true => $st.value['services'], default => {} }
+      $er = $st =~ NotUndef ? { true => $st.value['errors'],   default => {} }
+      $dbn = { 'name' => $n, 'role' => 'pe_postgres', 'services' => $sv, 'errors' => $er }
+      $dbn
+    }
   )
   $broker_by_name = $broker_task_raw =~ NotUndef ? {
     true    => $broker_task_raw.ok_set.results.reduce({}) |$m, $r| { $m + { $r.target.name => $r } },

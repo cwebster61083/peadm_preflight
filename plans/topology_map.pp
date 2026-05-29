@@ -35,13 +35,15 @@ plan peadm_preflight::topology_map(
   $probe_targets   = ([$primary] + $replica_targets + $all_compilers + $psql_targets).unique
 
   out::message("# Running configuration probes on ${probe_targets.size} node(s): ${probe_targets.join(', ')}")
-  $broker_rs = run_task('peadm_preflight::get_agent_broker',  $probe_targets, '_catch_errors' => true)
-  $puppet_rs = run_task('peadm_preflight::get_puppet_conf',   $probe_targets, '_catch_errors' => true)
-  $pdb_rs    = run_task('peadm_preflight::get_puppetdb_conf', $probe_targets, '_catch_errors' => true)
+  $broker_rs = run_task('peadm_preflight::get_agent_broker',      $probe_targets, '_catch_errors' => true)
+  $puppet_rs = run_task('peadm_preflight::get_puppet_conf',       $probe_targets, '_catch_errors' => true)
+  $pdb_rs    = run_task('peadm_preflight::get_puppetdb_conf',     $probe_targets, '_catch_errors' => true)
+  $status_rs = run_task('peadm_preflight::get_status_services',   $probe_targets, '_catch_errors' => true)
 
   $broker_by = $broker_rs.reduce({}) |$m, $r| { $m + { $r.target.name => $r } }
   $puppet_by = $puppet_rs.reduce({}) |$m, $r| { $m + { $r.target.name => $r } }
   $pdb_by    = $pdb_rs.reduce({})    |$m, $r| { $m + { $r.target.name => $r } }
+  $status_by = $status_rs.reduce({}) |$m, $r| { $m + { $r.target.name => $r } }
 
   # Expected endpoints — any primary/replica is a valid target for HA
   $all_primary_names = ([$primary] + $replica_targets).unique
@@ -95,7 +97,7 @@ plan peadm_preflight::topology_map(
     [$pcp_edge, $server_edge, $pdb_edge]
   }.flatten
 
-  # Build node list with roles
+  # Build node list with roles and live service health
   $nodes = $probe_targets.map |$n| {
     $role = $n == $primary ? {
       true    => 'primary',
@@ -113,7 +115,15 @@ plan peadm_preflight::topology_map(
         },
       },
     }
-    $node_entry = { 'name' => $n, 'role' => $role }
+    $st = $status_by[$n]
+    if $st and $st.ok {
+      $services = $st.value['services']
+      $errors   = $st.value['errors']
+    } else {
+      $services = {}
+      $errors   = {}
+    }
+    $node_entry = { 'name' => $n, 'role' => $role, 'services' => $services, 'errors' => $errors }
     $node_entry
   }
 

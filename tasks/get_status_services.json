@@ -1,0 +1,6 @@
+{
+  "puppet_task_version": 1,
+  "description": "Probes the PE /status/v1/services endpoint on puppetserver (8140), puppetdb (8081), console-services (4433), and orchestrator (8143). Returns a flattened service-name → state map and a per-port errors map for ports that did not respond.",
+  "parameters": {
+  }
+}
