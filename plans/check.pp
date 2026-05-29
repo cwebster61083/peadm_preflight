@@ -889,6 +889,9 @@ plan peadm_preflight::check(
           /* ── Mermaid topology ── */
           .mermaid-container { padding: 1.25em; overflow-x: auto; text-align: center; }
           .mermaid { background: transparent; display: inline-block; max-width: 100%; }
+          /* ── Open-in-tab button ── */
+          .open-tab-btn { background: rgba(61,43,171,0.08); color: #3d2bab; border: 1px solid rgba(61,43,171,0.2); border-radius: 6px; padding: 0.28em 0.75em; font-size: 0.75em; font-weight: 600; cursor: pointer; letter-spacing: 0.04em; font-family: inherit; white-space: nowrap; }
+          .open-tab-btn:hover { background: rgba(61,43,171,0.15); border-color: rgba(61,43,171,0.35); }
         </style>
       </head>
       <body>
@@ -994,10 +997,14 @@ plan peadm_preflight::check(
           <div class="section">
             <div class="section-header">
               <div class="section-title"><span class="icon">&#x1F5FA;&#xFE0F;</span> PE Topology Map</div>
-              <span class="ts">${ts_broker_s}</span>
+              <div style="display:flex;align-items:center;gap:1em">
+                <button class="open-tab-btn" onclick="openTopologyMap()">Open full size &#x2197;</button>
+                <span class="ts">${ts_broker_s}</span>
+              </div>
             </div>
             <div class="mermaid-container">
               <pre class="mermaid">${mermaid_diagram}</pre>
+              <textarea id="topo-source" style="display:none">${mermaid_diagram}</textarea>
             </div>
           </div>
 
@@ -1006,6 +1013,26 @@ plan peadm_preflight::check(
           Puppet PE Preflight &mdash; <a href="https://portal.perforce.com/s/product/a3g4X000009wMFBQA2/puppet">Perforce Customer Portal</a>
           &nbsp;&middot;&nbsp; &copy; Perforce Software, Inc.
         </footer>
+        <script>
+          function openTopologyMap() {
+            var src = document.getElementById('topo-source').value;
+            var newWin = window.open('', '_blank');
+            var page = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PE Topology Map<\/title>'
+              + '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">'
+              + '<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"><\/script>'
+              + '<script>mermaid.initialize({startOnLoad:true,theme:"base",themeVariables:{fontSize:"14px"}});<\/script>'
+              + '<style>'
+              + 'body{margin:0;padding:2.5em 3em;background:#f5f4fb;font-family:Inter,-apple-system,sans-serif}'
+              + 'h2{color:#3d2bab;font-size:0.8em;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1.5em}'
+              + '.wrap{background:#fff;border:1px solid #e4e2f0;border-radius:10px;box-shadow:0 2px 8px rgba(20,10,80,0.05);padding:2.5em;overflow-x:auto}'
+              + '<\/style><\/head><body>'
+              + '<h2>&#x1F5FA;&#xFE0F; PE Topology Map<\/h2>'
+              + '<div class="wrap"><div class="mermaid">' + src + '<\/div><\/div>'
+              + '<\/body><\/html>';
+            newWin.document.write(page);
+            newWin.document.close();
+          }
+        </script>
       </body>
       </html>
       | HTML
