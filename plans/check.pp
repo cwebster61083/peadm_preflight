@@ -1077,7 +1077,7 @@ plan peadm_preflight::check(
             document.querySelectorAll('.log-line').forEach(function(el) {
               var m = el.textContent.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})/);
               if (m) {
-                var d = new Date(m[1].replace(' ','T'));
+                var d = new Date(m[1].replace(' ','T') + 'Z');
                 if (!isNaN(d)) {
                   var b = document.createElement('span');
                   b.style.cssText = 'display:inline-block;background:#f3f1fb;color:#9590bb;border-radius:3px;padding:0 0.35em;font-size:0.82em;margin-right:0.5em;font-weight:600;white-space:nowrap';
