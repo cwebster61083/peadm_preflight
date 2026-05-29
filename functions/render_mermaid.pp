@@ -116,7 +116,7 @@ function peadm_preflight::render_mermaid(Hash $model) >> String {
     default => '',
   }
 
-  $subgraph_block = [$comp_block, $prim_block, $psql_block].filter |$b| { $b != '' }.join("\n\n")
+  $subgraph_block = [$prim_block, $psql_block, $comp_block].filter |$b| { $b != '' }.join("\n\n")
 
   # ── Compiler/replica → primary edges (port-labelled, coloured by validity) ─
   # Strip URL scheme and port/path from expected[0] to recover the bare certname
@@ -164,5 +164,5 @@ function peadm_preflight::render_mermaid(Hash $model) >> String {
     | DEFS
 
   $all_parts = [$subgraph_block, $edge_lines.join("\n"), $style_lines.join("\n"), $classdefs].filter |$p| { $p != '' }
-  "flowchart TB\n${all_parts.join("\n")}"
+  "%%{init: {'flowchart': {'curve': 'linear'}}}%%\nflowchart TB\n${all_parts.join("\n")}"
 }
